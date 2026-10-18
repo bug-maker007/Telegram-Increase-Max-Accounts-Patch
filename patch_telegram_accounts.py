@@ -95,15 +95,21 @@ def find_patches(data):
         raise ValueError("LEA rdi → assertion string not found")
     print(f"  [2] LEA rdi,[msg]           @ 0x{lea_off:x}")
 
-    # 3. MOV edx, 272  (line number for Expects() at line 272 in main_domain.cpp)
-    #    Located in the 80 bytes before the LEA
-    LINE272 = b'\xba\x10\x01\x00\x00'
+    # 3. MOV edx, <line>  (line number for Expects() in main_domain.cpp)
+    #    Located in the 80 bytes before the LEA; line number changes with source edits.
     chunk = data[max(0, lea_off - 80) : lea_off]
-    rel = chunk.rfind(LINE272)
+    rel = -1
+    for k in range(len(chunk) - 5, -1, -1):
+        if chunk[k] == 0xBA:  # MOV edx, imm32
+            line_val = struct.unpack_from("<I", chunk, k + 1)[0]
+            if 1 <= line_val <= 9999:
+                rel = k
+                break
     if rel < 0:
-        raise ValueError("MOV edx,272 not found before LEA — source line number changed?")
+        raise ValueError("MOV edx,<line> not found before LEA — wrong binary?")
     movedx_off = max(0, lea_off - 80) + rel
-    print(f"  [3] MOV edx,272             @ 0x{movedx_off:x}")
+    line_val = struct.unpack_from("<I", data, movedx_off + 1)[0]
+    print(f"  [3] MOV edx,{line_val:<4}            @ 0x{movedx_off:x}")
 
     # 4. Cold-block entry = MOV rax,[rbp-X] just before MOV edx,272
     #    (stack canary check before calling assertion::fail)
